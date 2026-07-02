@@ -1,0 +1,5 @@
+# OS junk files
+.DS_Store
+Thumbs.db
+
+# Discord bot has its own .gitignore for node_modules/.env/data/tessdata

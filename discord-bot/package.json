@@ -1,0 +1,21 @@
+{
+  "name": "expense-tracker-discord-bot",
+  "version": "1.0.0",
+  "description": "โยนรูปสลิปให้บอทใน Discord แล้วบันทึกรายรับ-รายจ่ายอัตโนมัติ",
+  "main": "bot.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node bot.js",
+    "deploy-commands": "node deploy-commands.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "tesseract.js": "^5.0.5",
+    "jimp": "^0.22.12",
+    "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0"
+  }
+}

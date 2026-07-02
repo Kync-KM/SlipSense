@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>รายรับ-รายจ่าย Auto (สแกนสลิป)</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+  :root{
+    --bg:#f4f5f7; --card:#ffffff; --text:#1f2430; --muted:#6b7280;
+    --primary:#2563eb; --primary-dark:#1d4ed8; --green:#16a34a; --red:#dc2626;
+    --border:#e5e7eb; --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:'Segoe UI',Sarabun,Tahoma,sans-serif; background:var(--bg); color:var(--text);
+  }
+  header{
+    padding:20px 16px 12px; text-align:center;
+  }
+  header h1{ font-size:20px; margin:0 0 4px; }
+  header p{ margin:0; color:var(--muted); font-size:13px; }
+  .container{ max-width:760px; margin:0 auto; padding:0 12px 60px; }
+  .tabs{ display:flex; gap:8px; margin:14px 0; }
+  .tab-btn{
+    flex:1; padding:10px; border:none; border-radius:10px; background:var(--card);
+    color:var(--muted); font-size:14px; cursor:pointer; border:1px solid var(--border);
+  }
+  .tab-btn.active{ background:var(--primary); color:#fff; border-color:var(--primary); }
+  .card{
+    background:var(--card); border-radius:var(--radius); padding:16px; margin-bottom:14px;
+    border:1px solid var(--border);
+  }
+  .drop-zone{
+    border:2px dashed var(--border); border-radius:12px; padding:28px 12px; text-align:center;
+    color:var(--muted); cursor:pointer; transition:.15s;
+  }
+  .drop-zone.dragover{ border-color:var(--primary); background:#eff6ff; }
+  .drop-zone input{ display:none; }
+  .drop-zone .icon{ font-size:32px; display:block; margin-bottom:6px; }
+  .preview-wrap{ text-align:center; margin-top:12px; }
+  .preview-wrap img{ max-width:100%; max-height:260px; border-radius:10px; border:1px solid var(--border); }
+  .progress-outer{
+    height:8px; background:var(--border); border-radius:6px; overflow:hidden; margin-top:10px; display:none;
+  }
+  .progress-inner{ height:100%; width:0%; background:var(--primary); transition:width .2s; }
+  .progress-label{ font-size:12px; color:var(--muted); margin-top:4px; text-align:center; display:none; }
+  .form-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:14px; }
+  .form-grid .full{ grid-column:1 / -1; }
+  label{ font-size:12px; color:var(--muted); display:block; margin-bottom:4px; }
+  input[type=text], input[type=number], input[type=date], input[type=time], select, textarea{
+    width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:8px; font-size:14px;
+    background:#fff; color:var(--text); font-family:inherit;
+  }
+  textarea{ resize:vertical; min-height:60px; }
+  .type-toggle{ display:flex; gap:8px; }
+  .type-toggle button{
+    flex:1; padding:9px; border-radius:8px; border:1px solid var(--border); background:#fff; cursor:pointer; font-size:14px;
+  }
+  .type-toggle button.expense.active{ background:#fee2e2; border-color:var(--red); color:var(--red); font-weight:600; }
+  .type-toggle button.income.active{ background:#dcfce7; border-color:var(--green); color:var(--green); font-weight:600; }
+  .btn{
+    padding:11px 16px; border:none; border-radius:10px; background:var(--primary); color:#fff;
+    font-size:14px; cursor:pointer; width:100%; margin-top:14px; font-weight:600;
+  }
+  .btn:hover{ background:var(--primary-dark); }
+  .btn.secondary{ background:#fff; color:var(--text); border:1px solid var(--border); }
+  .btn.small{ width:auto; padding:6px 12px; font-size:12px; margin-top:0; }
+  .btn.danger{ background:#fff; color:var(--red); border:1px solid #fecaca; }
+  details.raw{ margin-top:10px; font-size:12px; color:var(--muted); }
+  details.raw pre{ white-space:pre-wrap; background:#f9fafb; padding:8px; border-radius:8px; max-height:150px; overflow:auto; }
+  .summary-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:14px; }
+  .summary-box{ background:var(--card); border:1px solid var(--border); border-radius:12px; padding:12px; text-align:center; }
+  .summary-box .label{ font-size:11px; color:var(--muted); }
+  .summary-box .value{ font-size:16px; font-weight:700; margin-top:4px; }
+  .summary-box.income .value{ color:var(--green); }
+  .summary-box.expense .value{ color:var(--red); }
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  th,td{ text-align:left; padding:8px 6px; border-bottom:1px solid var(--border); vertical-align:top; }
+  th{ color:var(--muted); font-weight:600; font-size:12px; }
+  td.amount.expense{ color:var(--red); font-weight:600; }
+  td.amount.income{ color:var(--green); font-weight:600; }
+  .muted{ color:var(--muted); font-size:11px; }
+  .row-actions{ display:flex; gap:6px; }
+  .row-actions button{
+    border:none; background:transparent; cursor:pointer; font-size:14px; color:var(--muted);
+  }
+  .empty-state{ text-align:center; color:var(--muted); padding:30px 10px; font-size:13px; }
+  .toolbar{ display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap:8px; flex-wrap:wrap; }
+  .toolbar select{ width:auto; }
+  .cat-list{ margin-top:10px; }
+  .cat-row{ display:flex; align-items:center; gap:8px; font-size:12px; margin-bottom:6px; }
+  .cat-row .name{ width:110px; flex-shrink:0; color:var(--muted); }
+  .cat-bar-outer{ flex:1; background:var(--border); border-radius:6px; height:8px; overflow:hidden; }
+  .cat-bar-inner{ height:100%; background:var(--primary); }
+  .cat-row .amt{ width:75px; text-align:right; flex-shrink:0; }
+  .hint{ font-size:12px; color:var(--muted); margin-top:6px; }
+  .toast{
+    position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#1f2430; color:#fff;
+    padding:10px 18px; border-radius:20px; font-size:13px; opacity:0; pointer-events:none; transition:.25s; z-index:50;
+    max-width:90vw; text-align:center;
+  }
+  .toast.show{ opacity:1; bottom:30px; }
+  .batch-table-wrap{ overflow-x:auto; }
+  .batch-table{ min-width:640px; }
+  .batch-table input, .batch-table select{ font-size:12px; padding:6px; }
+  .batch-thumb{ width:40px; height:40px; object-fit:cover; border-radius:6px; border:1px solid var(--border); }
+  .batch-note{ font-size:11px; color:var(--muted); margin-top:2px; max-width:140px; }
+  .warn-border{ border-color:var(--red) !important; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>💸 รายรับ-รายจ่าย Auto</h1>
+  <p>โยนรูปสลิป/ใบเสร็จ (เลือกได้หลายไฟล์พร้อมกัน) ให้ระบบอ่านและกรอกให้อัตโนมัติ (ประมวลผลในเบราว์เซอร์ ไม่ส่งรูปออกไปไหน)</p>
+</header>
+
+<div class="container">
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="add">+ เพิ่มรายการ</button>
+    <button class="tab-btn" data-tab="list">รายการทั้งหมด</button>
+  </div>
+
+  <!-- TAB: ADD -->
+  <div id="tab-add" class="tab-panel">
+    <div class="card">
+      <div class="drop-zone" id="dropZone">
+        <span class="icon">📎</span>
+        <div>ลากรูปมาวาง (เลือกได้หลายไฟล์) หรือ <strong>คลิกเพื่อเลือกไฟล์</strong></div>
+        <div class="hint">รองรับสลิปโอนเงินและใบเสร็จร้านค้า • หรือ Ctrl+V วางรูปจากคลิปบอร์ด</div>
+        <input type="file" id="fileInput" accept="image/*" capture="environment" multiple>
+      </div>
+      <div class="progress-outer" id="progressOuter"><div class="progress-inner" id="progressInner"></div></div>
+      <div class="progress-label" id="progressLabel">กำลังอ่านข้อความจากรูป...</div>
+      <div class="preview-wrap" id="previewWrap" style="display:none;">
+        <img id="previewImg" src="" alt="preview">
+      </div>
+    </div>
+
+    <!-- Single-item review form (shown when 1 file uploaded) -->
+    <div class="card" id="formCard" style="display:none;">
+      <div class="type-toggle">
+        <button type="button" class="expense active" id="btnExpense">🔴 รายจ่าย</button>
+        <button type="button" class="income" id="btnIncome">🟢 รายรับ</button>
+      </div>
+      <div class="form-grid">
+        <div>
+          <label>จำนวนเงิน (บาท)</label>
+          <input type="number" id="fAmount" step="0.01" placeholder="0.00">
+        </div>
+        <div>
+          <label>วันที่</label>
+          <input type="date" id="fDate">
+        </div>
+        <div>
+          <label>เวลา</label>
+          <input type="time" id="fTime">
+        </div>
+        <div>
+          <label>ร้าน/บุคคล</label>
+          <input type="text" id="fMerchant" placeholder="เช่น 7-Eleven, โอนให้แม่">
+        </div>
+        <div class="full">
+          <label>หมวดหมู่</label>
+          <select id="fCategory">
+            <option>อาหาร/เครื่องดื่ม</option>
+            <option>ร้านสะดวกซื้อ/ซูเปอร์มาร์เก็ต</option>
+            <option>เดินทาง</option>
+            <option>ค่าน้ำค่าไฟ/สาธารณูปโภค</option>
+            <option>ค่าโทรศัพท์/อินเทอร์เน็ต</option>
+            <option>ช้อปปิ้ง</option>
+            <option>สุขภาพ</option>
+            <option>เงินเดือน/รายรับ</option>
+            <option>โอนเงิน</option>
+            <option>อื่นๆ</option>
+          </select>
+        </div>
+        <div class="full">
+          <label>บันทึกช่วยจำ (ดึงจากสลิปอัตโนมัติ แก้ไขได้)</label>
+          <textarea id="fNote" placeholder="เช่น ค่าผัดกะเพรา"></textarea>
+        </div>
+      </div>
+      <details class="raw" id="rawDetails" style="display:none;">
+        <summary>ดูข้อความดิบที่อ่านได้จาก OCR</summary>
+        <pre id="rawText"></pre>
+      </details>
+      <button class="btn" id="btnSave">💾 บันทึกรายการ</button>
+      <button class="btn secondary" id="btnCancel">ยกเลิก</button>
+    </div>
+
+    <!-- Batch review (shown when >1 files uploaded) -->
+    <div class="card" id="batchCard" style="display:none;">
+      <div class="toolbar">
+        <strong id="batchTitle">ตรวจสอบรายการ (0)</strong>
+        <span class="hint" id="batchStatus"></span>
+      </div>
+      <div class="batch-table-wrap">
+        <table class="batch-table">
+          <thead>
+            <tr>
+              <th></th><th>วันที่/เวลา</th><th>ประเภท</th><th>จำนวน</th><th>ร้าน/บุคคล</th><th>หมวดหมู่</th><th>บันทึก</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="batchTbody"></tbody>
+        </table>
+      </div>
+      <button class="btn" id="btnSaveBatch">💾 บันทึกทั้งหมด</button>
+      <button class="btn secondary" id="btnCancelBatch">ยกเลิกทั้งหมด</button>
+    </div>
+  </div>
+
+  <!-- TAB: LIST -->
+  <div id="tab-list" class="tab-panel" style="display:none;">
+    <div class="summary-grid">
+      <div class="summary-box income"><div class="label">รายรับรวม</div><div class="value" id="sumIncome">0</div></div>
+      <div class="summary-box expense"><div class="label">รายจ่ายรวม</div><div class="value" id="sumExpense">0</div></div>
+      <div class="summary-box"><div class="label">คงเหลือ</div><div class="value" id="sumNet">0</div></div>
+    </div>
+
+    <div class="card">
+      <div class="toolbar">
+        <select id="filterMonth"></select>
+        <div style="display:flex; gap:8px;">
+          <button class="btn small secondary" id="btnExportCsv">⬇️ Export CSV</button>
+        </div>
+      </div>
+      <div id="catSummary" class="cat-list"></div>
+    </div>
+
+    <div class="card">
+      <table>
+        <thead>
+          <tr><th>วันที่/เวลา</th><th>รายการ</th><th>หมวดหมู่</th><th style="text-align:right;">จำนวน</th><th></th></tr>
+        </thead>
+        <tbody id="recordsTbody"></tbody>
+      </table>
+      <div class="empty-state" id="emptyState">ยังไม่มีรายการ — ลองไปแท็บ "เพิ่มรายการ" แล้วอัปโหลดสลิปดูสิ</div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  const STORAGE_KEY = "expenseTrackerRecords_v1";
+  let records = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+  let currentType = "expense";
+  let lastRawText = "";
+  let batchItems = []; // { id, previewUrl, type, amount, date, time, merchant, category, note, rawText }
+
+  function pad(n){ return String(n).padStart(2,"0"); }
+
+  // ---------- Tabs ----------
+  document.querySelectorAll(".tab-btn").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      document.querySelectorAll(".tab-btn").forEach(b=>b.classList.remove("active"));
+      btn.classList.add("active");
+      const tab = btn.dataset.tab;
+      document.getElementById("tab-add").style.display = tab==="add" ? "block":"none";
+      document.getElementById("tab-list").style.display = tab==="list" ? "block":"none";
+      if(tab==="list") renderList();
+    });
+  });
+
+  // ---------- Upload / Drop / Paste ----------
+  const dropZone = document.getElementById("dropZone");
+  const fileInput = document.getElementById("fileInput");
+
+  dropZone.addEventListener("click", ()=> fileInput.click());
+  dropZone.addEventListener("dragover", e=>{ e.preventDefault(); dropZone.classList.add("dragover"); });
+  dropZone.addEventListener("dragleave", ()=> dropZone.classList.remove("dragover"));
+  dropZone.addEventListener("drop", e=>{
+    e.preventDefault(); dropZone.classList.remove("dragover");
+    if(e.dataTransfer.files && e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+  });
+  fileInput.addEventListener("change", e=>{
+    if(e.target.files && e.target.files.length) handleFiles(e.target.files);
+  });
+  document.addEventListener("paste", e=>{
+    const items = e.clipboardData && e.clipboardData.items;
+    if(!items) return;
+    const imgs = [];
+    for(const item of items){
+      if(item.type.indexOf("image")===0) imgs.push(item.getAsFile());
+    }
+    if(imgs.length) handleFiles(imgs);
+  });
+
+  function handleFiles(fileList){
+    const files = Array.from(fileList).filter(f=> f.type.indexOf("image")===0);
+    if(files.length===0) return;
+    resetAddForm();
+    resetBatch();
+    if(files.length===1){
+      handleImageSingle(files[0]);
+    }else{
+      handleImagesBatch(files);
+    }
+  }
+
+  // ---------- Image preprocessing (grayscale + contrast stretch) ----------
+  // Helps Tesseract read text on colored/gradient slip backgrounds more reliably.
+  function preprocessImage(file){
+    return new Promise((resolve)=>{
+      const objUrl = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = ()=>{
+        try{
+          const scale = img.width < 1000 ? Math.min(2, 1000/img.width) : 1;
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.max(1, Math.round(img.width*scale));
+          canvas.height = Math.max(1, Math.round(img.height*scale));
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const imgData = ctx.getImageData(0,0,canvas.width,canvas.height);
+          const d = imgData.data;
+          let min=255, max=0;
+          const gray = new Float32Array(d.length/4);
+          for(let i=0,j=0;i<d.length;i+=4,j++){
+            const g = 0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
+            gray[j]=g;
+            if(g<min) min=g;
+            if(g>max) max=g;
+          }
+          const range = Math.max(1, max-min);
+          for(let i=0,j=0;i<d.length;i+=4,j++){
+            const v = Math.max(0, Math.min(255, (gray[j]-min)*(255/range)));
+            d[i]=d[i+1]=d[i+2]=v;
+          }
+          ctx.putImageData(imgData,0,0);
+          URL.revokeObjectURL(objUrl);
+          resolve(canvas.toDataURL("image/png"));
+        }catch(e){
+          URL.revokeObjectURL(objUrl);
+          resolve(objUrl);
+        }
+      };
+      img.onerror = ()=> resolve(objUrl);
+      img.src = objUrl;
+    });
+  }
+
+  function handleImageSingle(file){
+    const previewUrl = URL.createObjectURL(file);
+    document.getElementById("previewImg").src = previewUrl;
+    document.getElementById("previewWrap").style.display = "block";
+    document.getElementById("formCard").style.display = "none";
+    runOCRSingle(file);
+  }
+
+  // ---------- OCR (single) ----------
+  async function runOCRSingle(file){
+    const outer = document.getElementById("progressOuter");
+    const inner = document.getElementById("progressInner");
+    const label = document.getElementById("progressLabel");
+    outer.style.display = "block";
+    label.style.display = "block";
+    inner.style.width = "0%";
+    label.textContent = "กำลังเตรียมรูปภาพ...";
+
+    try{
+      const processedUrl = await preprocessImage(file);
+      inner.style.width = "10%";
+      label.textContent = "กำลังโหลดโมดูล OCR...";
+      const worker = await Tesseract.createWorker("tha+eng", 1, {
+        logger: m=> updateProgressLabel(m, inner, label)
+      });
+      const { data: { text } } = await worker.recognize(processedUrl);
+      await worker.terminate();
+      outer.style.display = "none";
+      label.style.display = "none";
+      lastRawText = text || "";
+      prefillForm(analyzeText(lastRawText));
+    }catch(err){
+      outer.style.display = "none";
+      label.style.display = "none";
+      showToast("อ่านรูปไม่สำเร็จ กรอกข้อมูลเองได้เลย");
+      prefillForm({});
+      console.error(err);
+    }
+  }
+
+  function updateProgressLabel(m, inner, label){
+    if(m.status && typeof m.progress === "number"){
+      inner.style.width = Math.round(m.progress*100) + "%";
+      const statusMap = {
+        "loading tesseract core":"กำลังโหลดเครื่องมือ OCR...",
+        "initializing tesseract":"กำลังเตรียมระบบ...",
+        "loading language traineddata":"กำลังโหลดชุดภาษา...",
+        "initializing api":"กำลังเตรียม API...",
+        "recognizing text":"กำลังอ่านข้อความจากรูป..."
+      };
+      label.textContent = statusMap[m.status] || m.status;
+    }
+  }
+
+  // ---------- OCR (batch, single reused worker for speed) ----------
+  async function handleImagesBatch(files){
+    const outer = document.getElementById("progressOuter");
+    const inner = document.getElementById("progressInner");
+    const label = document.getElementById("progressLabel");
+    outer.style.display = "block";
+    label.style.display = "block";
+    inner.style.width = "0%";
+    label.textContent = `กำลังเตรียม OCR สำหรับ ${files.length} ไฟล์...`;
+
+    let worker;
+    try{
+      worker = await Tesseract.createWorker("tha+eng", 1, { logger: ()=>{} });
+    }catch(err){
+      outer.style.display = "none";
+      label.style.display = "none";
+      showToast("โหลดระบบ OCR ไม่สำเร็จ");
+      console.error(err);
+      return;
+    }
+
+    batchItems = [];
+    for(let i=0; i<files.length; i++){
+      const file = files[i];
+      const pct = Math.round((i/files.length)*100);
+      inner.style.width = pct + "%";
+      label.textContent = `กำลังอ่านรูปที่ ${i+1}/${files.length}...`;
+      const previewUrl = URL.createObjectURL(file);
+      let text = "";
+      try{
+        const processedUrl = await preprocessImage(file);
+        const res = await worker.recognize(processedUrl);
+        text = res.data.text || "";
+      }catch(err){
+        console.error("OCR failed for file", i, err);
+      }
+      const parsed = analyzeText(text);
+      batchItems.push({
+        id: Date.now()+"_"+i,
+        previewUrl: previewUrl,
+        type: parsed.type || "expense",
+        amount: parsed.amount || "",
+        date: parsed.date || new Date().toISOString().slice(0,10),
+        time: parsed.time || "",
+        merchant: parsed.merchant || "",
+        category: parsed.category || "อื่นๆ",
+        note: parsed.note || "",
+        rawText: text
+      });
+    }
+    inner.style.width = "100%";
+    label.textContent = "เสร็จแล้ว";
+
+    try{ await worker.terminate(); }catch(e){}
+
+    setTimeout(()=>{
+      outer.style.display = "none";
+      label.style.display = "none";
+    }, 300);
+
+    renderBatch();
+  }
+
+  // ---------- Thai OCR text cleanup ----------
+  // Tesseract frequently outputs SARA AM (ำ) decomposed as NIKHAHIT + SARA AA (ํ + า).
+  // Recompose it so keyword regexes (สำเร็จ, บันทึกช่วยจำ, ...) match reliably.
+  function fixThaiText(text){
+    if(!text) return "";
+    return text.replace(/ํา/g, "ำ");
+  }
+
+  // Extract the longest run of Thai characters in a line, allowing single spaces
+  // between words (so "นาย นิติกร เขียวปั้น" stays together) but treating bigger
+  // gaps as boundaries (so garbled Latin/number noise doesn't get glued on).
+  function longestThaiRun(line){
+    if(!line) return "";
+    const re = /[ก-๙]+(?: [ก-๙]+)*/g;
+    let m, best = "";
+    while((m = re.exec(line))){
+      if(m[0].length > best.length) best = m[0];
+    }
+    return best.trim();
+  }
+
+  // ---------- Parsing logic ----------
+  const THAI_MONTHS = {
+    "มกราคม":1, "ม.ค":1, "กุมภาพันธ์":2, "ก.พ":2, "มีนาคม":3, "มี.ค":3,
+    "เมษายน":4, "เม.ย":4, "พฤษภาคม":5, "พ.ค":5, "มิถุนายน":6, "มิ.ย":6,
+    "กรกฎาคม":7, "ก.ค":7, "สิงหาคม":8, "ส.ค":8, "กันยายน":9, "ก.ย":9,
+    "ตุลาคม":10, "ต.ค":10, "พฤศจิกายน":11, "พ.ย":11, "ธันวาคม":12, "ธ.ค":12
+  };
+
+  function monthLookup(raw){
+    const norm = raw.replace(/\./g,"").trim();
+    for(const key in THAI_MONTHS){
+      if(key.replace(/\./g,"") === norm) return THAI_MONTHS[key];
+    }
+    for(const key in THAI_MONTHS){
+      const k = key.replace(/\./g,"");
+      if(norm.startsWith(k) || k.startsWith(norm)) return THAI_MONTHS[key];
+    }
+    return null;
+  }
+
+  const CATEGORY_MAP = [
+    [["7-11","เซเว่น","7-eleven","เซเว่นอีเลฟเว่น"], "ร้านสะดวกซื้อ/ซูเปอร์มาร์เก็ต"],
+    [["lotus","โลตัส","บิ๊กซี","big c","tops","ท็อปส์","แม็คโคร","makro"], "ร้านสะดวกซื้อ/ซูเปอร์มาร์เก็ต"],
+    [["grab","bolt","taxi","แท็กซี่","bts","mrt","วิน","มอเตอร์ไซค์","airasia","น้ำมัน","ปตท","ปั๊ม"], "เดินทาง"],
+    [["foodpanda","lineman","line man","ร้านอาหาร","ก๋วยเตี๋ยว","ส้มตำ","ข้าว","คาเฟ่","coffee","กาแฟ","ชานม",
+      "ตามสั่ง","กะเพรา","ผัดกะเพรา","ข้าวผัด","ต้มยำ","แกง","อาหารตามสั่ง"], "อาหาร/เครื่องดื่ม"],
+    [["ais","true","dtac","เติมเงิน","เน็ต","อินเทอร์เน็ต"], "ค่าโทรศัพท์/อินเทอร์เน็ต"],
+    [["การไฟฟ้า","การประปา","ค่าน้ำ","ค่าไฟ"], "ค่าน้ำค่าไฟ/สาธารณูปโภค"],
+    [["โรงพยาบาล","ร้านยา","คลินิก","hospital","pharmacy"], "สุขภาพ"],
+    [["เงินเดือน","salary","โบนัส"], "เงินเดือน/รายรับ"],
+    [["โอนเงิน","พร้อมเพย์","promptpay","transfer","รหัสอ้างอิง","เลขที่รายการ"], "โอนเงิน"]
+  ];
+
+  function guessCategory(text){
+    const lower = text.toLowerCase();
+    for(const [keywords, cat] of CATEGORY_MAP){
+      if(keywords.some(k=> lower.includes(k.toLowerCase()))) return cat;
+    }
+    return "อื่นๆ";
+  }
+
+  function extractNumbersLoose(str){
+    const moneyRegex = /(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)/g;
+    const found = str.match(moneyRegex) || [];
+    return found
+      .map(f=> ({ raw:f, val: parseFloat(f.replace(/,/g,"")) }))
+      .filter(o=> !isNaN(o.val) && o.val>0 && o.val<10000000)
+      // reject lone single-digit noise picked up from garbled OCR (e.g. a stray
+      // "1" or "2") unless it's a proper decimal amount like "5.00"
+      .filter(o=> o.raw.includes(".") || o.val>=10)
+      .map(o=> o.val);
+  }
+  // Stricter matcher (requires a proper X.XX decimal) used for low-trust fallback
+  // scans, so stray digits picked up from garbled OCR noise don't get treated as
+  // a confident amount.
+  function extractNumbersStrict(str){
+    const moneyRegex = /(\d{1,3}(?:,\d{3})*\.\d{2})/g;
+    const found = str.match(moneyRegex) || [];
+    return found.map(f=> parseFloat(f.replace(/,/g,""))).filter(n=> !isNaN(n) && n>0 && n<10000000);
+  }
+
+  function findAmount(lines, fullText){
+    const labelRegex = /จำนวนเงิน|จำนวน[:\s]|จำนวน$|รวมทั้งสิ้น|รวมสุทธิ|^รวม\b|total|amount/i;
+    const feeRegex = /ค่าธรรมเนียม|fee/i;
+    let candidates = [];
+    for(let i=0;i<lines.length;i++){
+      if(labelRegex.test(lines[i]) && !feeRegex.test(lines[i])){
+        let nums = extractNumbersLoose(lines[i]);
+        if(nums.length===0 && lines[i+1] && !feeRegex.test(lines[i+1])) nums = extractNumbersLoose(lines[i+1]);
+        if(nums.length===0 && lines[i+2] && !feeRegex.test(lines[i+2])) nums = extractNumbersLoose(lines[i+2]);
+        candidates = candidates.concat(nums);
+      }
+    }
+    if(candidates.length===0){
+      lines.forEach(l=>{
+        if(/บาท|฿/.test(l) && !feeRegex.test(l)) candidates = candidates.concat(extractNumbersStrict(l));
+      });
+    }
+    if(candidates.length===0) candidates = extractNumbersStrict(fullText);
+    return candidates.length ? Math.max(...candidates) : null;
+  }
+
+  function extractDate(text){
+    // numeric dd/mm/yyyy (or yy)
+    let m = text.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+    if(m){
+      let d=+m[1], mo=+m[2], y=+m[3];
+      if(mo>=1 && mo<=12 && d>=1 && d<=31){
+        if(y<100) y = 2500+y;
+        if(y>2400) y -= 543;
+        return `${y}-${pad(mo)}-${pad(d)}`;
+      }
+    }
+    // thai month name, e.g. "2 ก.ค. 69"
+    m = text.match(/(\d{1,2})\s*([ก-๙.]{2,10})\s*(\d{2,4})/);
+    if(m){
+      const mo = monthLookup(m[2]);
+      let d=+m[1], y=+m[3];
+      if(mo && d>=1 && d<=31){
+        if(y<100) y = 2500+y;
+        if(y>2400) y -= 543;
+        return `${y}-${pad(mo)}-${pad(d)}`;
+      }
+    }
+    return null;
+  }
+
+  function extractTime(text){
+    let m = text.match(/([01]?\d|2[0-3])[:.]([0-5]\d)/);
+    if(m) return `${pad(+m[1])}:${m[2]}`;
+    // OCR sometimes drops the separator, e.g. "1424 น." meaning 14:24 น.
+    m = text.match(/(\d{3,4})\s*น/);
+    if(m){
+      const digits = m[1];
+      const hh = digits.length===4 ? digits.slice(0,2) : digits.slice(0,1);
+      const mm = digits.length===4 ? digits.slice(2) : digits.slice(1);
+      const h = +hh, mnum = +mm;
+      if(h>=0 && h<=23 && mnum>=0 && mnum<=59) return `${pad(h)}:${pad(mnum)}`;
+    }
+    return null;
+  }
+
+  function extractMemo(text){
+    const m = text.match(/บันทึกช่วยจำ[:\s]*([^\n]*)/);
+    if(m){
+      let val = (m[1]||"").trim();
+      if(!val){
+        const idx = text.indexOf("บันทึกช่วยจำ");
+        const after = text.slice(idx).split(/\r?\n/);
+        if(after[1]) val = after[1].trim();
+      }
+      return val;
+    }
+    return "";
+  }
+
+  function extractMerchant(lines, docType, boundaryIdx){
+    // 1) explicit keyword line, e.g. "ไปยัง", "ไปที่"
+    const toIdx = lines.findIndex(l=>/ไปยัง|ไปที่|ผู้รับโอน|ชื่อผู้รับ/.test(l));
+    if(toIdx !== -1){
+      const after = (lines[toIdx].split(/ไปยัง|ไปที่|ผู้รับโอน|ชื่อผู้รับ/)[1] || "").trim();
+      const cand = after || longestThaiRun(lines[toIdx+1]||"");
+      if(cand) return cand.replace(/[:：]/g,"").trim().slice(0,60);
+    }
+    // 2) plain itemized receipt: shop name usually on first line
+    if(docType==="receipt" && lines.length>0){
+      const cand = longestThaiRun(lines[0]) || lines[0];
+      return cand.replace(/[:：]/g,"").trim().slice(0,60);
+    }
+    // 3) transfer/payment slip without explicit keyword: heuristic scan.
+    // Extract the cleanest Thai text "island" from each candidate line (ignoring
+    // garbled Latin/symbol noise glued on by OCR) and prefer a name/shop line
+    // that has no personal title prefix (นาย/นาง/...), since that is usually the
+    // shop name rather than the account holder's legal name.
+    const isDateTimeLine = l=> /\d{1,2}[:.]\d{2}/.test(l) ||
+      /\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}/.test(l) ||
+      /\d{1,2}\s*[ก-๙.]{2,10}\s*\d{2,4}/.test(l);
+    const isTitleLine = l=> /สำเร็จ|k\s?\+|kplus/i.test(l);
+    const isBankLine = l=> /^ธ\.|ธนาคาร|bank|promptpay|พร้อมเพย์/i.test(l);
+    const isMaskLine = l=> /x{2,}/i.test(l);
+    const isPureDigits = l=> /^\d{6,}$/.test(l);
+
+    const titleRegex = /^(นาย|นาง|นางสาว|น\.ส\.|คุณ)/;
+    const titled = [];
+    const untitled = [];
+    lines.slice(0, boundaryIdx).forEach(l=>{
+      if(l.length<2 || isDateTimeLine(l) || isTitleLine(l) || isBankLine(l) || isMaskLine(l) || isPureDigits(l)) return;
+      const thai = longestThaiRun(l);
+      if(thai.length < 2) return;
+      if(titleRegex.test(thai)) titled.push(thai); else untitled.push(thai);
+    });
+    const merchant = untitled.length ? untitled[untitled.length-1] : (titled.length ? titled[titled.length-1] : "");
+    return merchant.replace(/[:：]/g,"").trim().slice(0,60);
+  }
+
+  function analyzeText(rawText){
+    const result = { amount:null, date:null, time:null, merchant:"", category:"อื่นๆ", type:"expense", note:"" };
+    if(!rawText) return result;
+    const text = fixThaiText(rawText);
+    const lower = text.toLowerCase();
+
+    const transferKeywords = ["โอนเงิน","รหัสอ้างอิง","เลขที่รายการ","promptpay","บัญชีปลายทาง","ผู้รับโอน",
+      "transfer","สแกนจ่าย","จากบัญชี","ไปยัง","ชำระเงินสำเร็จ","จ่ายบิลสำเร็จ","เติมเงินสำเร็จ"];
+    const receiptKeywords = ["ใบเสร็จ","รวมทั้งสิ้น","จำนวนเงินรวม","vat","ภาษีมูลค่าเพิ่ม","tax invoice","เงินทอน","ใบกำกับภาษี"];
+    const transferScore = transferKeywords.filter(k=>lower.includes(k)).length;
+    const receiptScore = receiptKeywords.filter(k=>lower.includes(k)).length;
+    const docType = transferScore >= receiptScore && transferScore>0 ? "transfer" : "receipt";
+
+    const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+
+    result.amount = findAmount(lines, text);
+    result.date = extractDate(text);
+    result.time = extractTime(text);
+
+    const boundaryIdx = (()=>{
+      const idx = lines.findIndex(l=> /เลขที่รายการ|รหัสอ้างอิง|จำนวนเงิน|^จำนวน\b|รวมทั้งสิ้น|ค่าธรรมเนียม/i.test(l));
+      return idx===-1 ? lines.length : idx;
+    })();
+    result.merchant = extractMerchant(lines, docType, boundaryIdx);
+
+    const memo = extractMemo(text);
+    result.note = memo || "";
+
+    result.category = guessCategory(text + " " + memo);
+    result.type = "expense"; // default; user can flip to income
+
+    return result;
+  }
+
+  // ---------- Single-item form ----------
+  function prefillForm(parsed){
+    document.getElementById("formCard").style.display = "block";
+    setType(parsed.type || "expense");
+    const amountEl = document.getElementById("fAmount");
+    amountEl.value = parsed.amount ? parsed.amount.toFixed(2) : "";
+    amountEl.classList.toggle("warn-border", !parsed.amount);
+    if(!parsed.amount && lastRawText){
+      showToast("อ่านจำนวนเงินไม่ได้ กรุณากรอกเอง (ดูข้อความดิบด้านล่างช่วยได้)");
+    }
+    document.getElementById("fDate").value = parsed.date || new Date().toISOString().slice(0,10);
+    document.getElementById("fTime").value = parsed.time || "";
+    document.getElementById("fMerchant").value = parsed.merchant || "";
+    document.getElementById("fCategory").value = parsed.category || "อื่นๆ";
+    document.getElementById("fNote").value = parsed.note || "";
+    if(lastRawText){
+      document.getElementById("rawDetails").style.display = "block";
+      document.getElementById("rawText").textContent = lastRawText;
+      document.getElementById("rawDetails").open = !parsed.amount;
+    } else {
+      document.getElementById("rawDetails").style.display = "none";
+    }
+    document.getElementById("formCard").scrollIntoView({behavior:"smooth", block:"nearest"});
+  }
+
+  function setType(type){
+    currentType = type;
+    document.getElementById("btnExpense").classList.toggle("active", type==="expense");
+    document.getElementById("btnIncome").classList.toggle("active", type==="income");
+  }
+  document.getElementById("btnExpense").addEventListener("click", ()=> setType("expense"));
+  document.getElementById("btnIncome").addEventListener("click", ()=> setType("income"));
+
+  document.getElementById("btnCancel").addEventListener("click", resetAddForm);
+  function resetAddForm(){
+    document.getElementById("formCard").style.display = "none";
+    document.getElementById("previewWrap").style.display = "none";
+    fileInput.value = "";
+    lastRawText = "";
+  }
+
+  document.getElementById("btnSave").addEventListener("click", ()=>{
+    const amount = parseFloat(document.getElementById("fAmount").value);
+    if(!amount || amount<=0){
+      showToast("กรุณากรอกจำนวนเงินให้ถูกต้อง");
+      document.getElementById("fAmount").classList.add("warn-border");
+      return;
+    }
+    const rec = {
+      id: Date.now(),
+      type: currentType,
+      amount: amount,
+      date: document.getElementById("fDate").value || new Date().toISOString().slice(0,10),
+      time: document.getElementById("fTime").value || "",
+      merchant: document.getElementById("fMerchant").value.trim(),
+      category: document.getElementById("fCategory").value,
+      note: document.getElementById("fNote").value.trim()
+    };
+    records.push(rec);
+    saveRecords();
+    showToast("บันทึกรายการแล้ว ✅");
+    resetAddForm();
+    document.querySelector('.tab-btn[data-tab="list"]').click();
+  });
+
+  // ---------- Batch review ----------
+  const CATEGORY_OPTIONS = ["อาหาร/เครื่องดื่ม","ร้านสะดวกซื้อ/ซูเปอร์มาร์เก็ต","เดินทาง","ค่าน้ำค่าไฟ/สาธารณูปโภค",
+    "ค่าโทรศัพท์/อินเทอร์เน็ต","ช้อปปิ้ง","สุขภาพ","เงินเดือน/รายรับ","โอนเงิน","อื่นๆ"];
+
+  function resetBatch(){
+    batchItems = [];
+    document.getElementById("batchCard").style.display = "none";
+    document.getElementById("batchTbody").innerHTML = "";
+  }
+  document.getElementById("btnCancelBatch").addEventListener("click", resetBatch);
+
+  function renderBatch(){
+    const card = document.getElementById("batchCard");
+    const tbody = document.getElementById("batchTbody");
+    document.getElementById("batchTitle").textContent = `ตรวจสอบรายการ (${batchItems.length})`;
+    const missingCount = batchItems.filter(it=> !it.amount).length;
+    document.getElementById("batchStatus").textContent = missingCount
+      ? `แก้ไขได้ก่อนบันทึก • ${missingCount} รายการอ่านยอดเงินไม่ได้ กรุณากรอกเอง`
+      : "แก้ไขได้ก่อนบันทึก";
+    tbody.innerHTML = "";
+    batchItems.forEach((item, idx)=>{
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><img class="batch-thumb" src="${item.previewUrl}"></td>
+        <td>
+          <input type="date" data-field="date" data-idx="${idx}" value="${item.date}">
+          <input type="time" data-field="time" data-idx="${idx}" value="${item.time||""}" style="margin-top:4px;">
+        </td>
+        <td>
+          <select data-field="type" data-idx="${idx}">
+            <option value="expense" ${item.type==="expense"?"selected":""}>รายจ่าย</option>
+            <option value="income" ${item.type==="income"?"selected":""}>รายรับ</option>
+          </select>
+        </td>
+        <td><input type="number" step="0.01" data-field="amount" data-idx="${idx}" value="${item.amount}" class="${item.amount?'':'warn-border'}" style="width:80px;"></td>
+        <td><input type="text" data-field="merchant" data-idx="${idx}" value="${escapeAttr(item.merchant)}" style="width:110px;"></td>
+        <td>
+          <select data-field="category" data-idx="${idx}">
+            ${CATEGORY_OPTIONS.map(c=> `<option ${c===item.category?"selected":""}>${c}</option>`).join("")}
+          </select>
+        </td>
+        <td><input type="text" data-field="note" data-idx="${idx}" value="${escapeAttr(item.note)}" style="width:120px;"></td>
+        <td><button class="row-actions" data-remove="${idx}" title="ลบ">🗑️</button></td>
+      `;
+      tbody.appendChild(tr);
+    });
+    tbody.querySelectorAll("[data-field]").forEach(el=>{
+      el.addEventListener("input", e=>{
+        const idx = +el.dataset.idx;
+        const field = el.dataset.field;
+        batchItems[idx][field] = field==="amount" ? parseFloat(el.value)||0 : el.value;
+        if(field==="amount") el.classList.toggle("warn-border", !batchItems[idx].amount);
+      });
+    });
+    tbody.querySelectorAll("[data-remove]").forEach(btn=>{
+      btn.addEventListener("click", ()=>{
+        batchItems.splice(+btn.dataset.remove, 1);
+        renderBatch();
+      });
+    });
+    card.style.display = batchItems.length ? "block" : "none";
+  }
+
+  document.getElementById("btnSaveBatch").addEventListener("click", ()=>{
+    let saved = 0, skipped = 0;
+    batchItems.forEach(item=>{
+      const amount = parseFloat(item.amount);
+      if(!amount || amount<=0){ skipped++; return; }
+      records.push({
+        id: Date.now()+"_"+saved,
+        type: item.type,
+        amount: amount,
+        date: item.date || new Date().toISOString().slice(0,10),
+        time: item.time || "",
+        merchant: (item.merchant||"").trim(),
+        category: item.category || "อื่นๆ",
+        note: (item.note||"").trim()
+      });
+      saved++;
+    });
+    saveRecords();
+    showToast(skipped ? `บันทึก ${saved} รายการ (ข้าม ${skipped} รายการที่ไม่มียอดเงิน)` : `บันทึก ${saved} รายการแล้ว ✅`);
+    if(skipped===0){
+      resetBatch();
+      document.querySelector('.tab-btn[data-tab="list"]').click();
+    }else{
+      // keep unsaved (skipped) items visible for correction
+      batchItems = batchItems.filter(item=> !(parseFloat(item.amount)>0));
+      renderBatch();
+    }
+  });
+
+  function saveRecords(){
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+  }
+
+  // ---------- List / Summary ----------
+  function populateMonthFilter(){
+    const sel = document.getElementById("filterMonth");
+    const months = Array.from(new Set(records.map(r=> r.date ? r.date.slice(0,7) : "ไม่ระบุ"))).sort().reverse();
+    sel.innerHTML = '<option value="all">ทุกเดือน</option>' +
+      months.map(m=> `<option value="${m}">${m}</option>`).join("");
+  }
+
+  document.getElementById("filterMonth").addEventListener("change", renderList);
+
+  function renderList(){
+    populateMonthFilter();
+    const filterVal = document.getElementById("filterMonth").value || "all";
+    const filtered = records.filter(r=> filterVal==="all" || (r.date||"").slice(0,7)===filterVal)
+                             .sort((a,b)=> (b.date||"").localeCompare(a.date||"") || (b.time||"").localeCompare(a.time||"") || String(b.id).localeCompare(String(a.id)));
+
+    let income=0, expense=0;
+    filtered.forEach(r=> r.type==="income" ? income+=r.amount : expense+=r.amount);
+    document.getElementById("sumIncome").textContent = fmt(income);
+    document.getElementById("sumExpense").textContent = fmt(expense);
+    document.getElementById("sumNet").textContent = fmt(income-expense);
+
+    const tbody = document.getElementById("recordsTbody");
+    tbody.innerHTML = "";
+    document.getElementById("emptyState").style.display = filtered.length===0 ? "block":"none";
+    filtered.forEach(r=>{
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${r.date||"-"}${r.time? `<br><span class="muted">${r.time} น.</span>`:""}</td>
+        <td>${escapeHtml(r.merchant || r.category || "-")}${r.note? `<div class="muted">${escapeHtml(r.note)}</div>`:""}</td>
+        <td>${escapeHtml(r.category||"-")}</td>
+        <td style="text-align:right;" class="amount ${r.type}">${r.type==="income"?"+":"-"}${fmt(r.amount)}</td>
+        <td class="row-actions"><button data-id="${r.id}" class="del-btn" title="ลบ">🗑️</button></td>
+      `;
+      tbody.appendChild(tr);
+    });
+    tbody.querySelectorAll(".del-btn").forEach(btn=>{
+      btn.addEventListener("click", ()=>{
+        const id = btn.dataset.id;
+        records = records.filter(r=> String(r.id)!==String(id));
+        saveRecords();
+        renderList();
+      });
+    });
+
+    // category breakdown (expense only)
+    const catTotals = {};
+    filtered.filter(r=>r.type==="expense").forEach(r=>{
+      catTotals[r.category] = (catTotals[r.category]||0) + r.amount;
+    });
+    const catEntries = Object.entries(catTotals).sort((a,b)=> b[1]-a[1]);
+    const maxCat = catEntries.length ? catEntries[0][1] : 1;
+    const catDiv = document.getElementById("catSummary");
+    catDiv.innerHTML = catEntries.length===0 ? "" : catEntries.map(([name,amt])=>`
+      <div class="cat-row">
+        <div class="name">${escapeHtml(name)}</div>
+        <div class="cat-bar-outer"><div class="cat-bar-inner" style="width:${Math.round(amt/maxCat*100)}%"></div></div>
+        <div class="amt">${fmt(amt)}</div>
+      </div>
+    `).join("");
+  }
+
+  document.getElementById("btnExportCsv").addEventListener("click", ()=>{
+    if(records.length===0){ showToast("ยังไม่มีรายการให้ export"); return; }
+    const header = ["วันที่","เวลา","ประเภท","จำนวนเงิน","ร้าน/บุคคล","หมวดหมู่","บันทึก"];
+    const rows = records.map(r=> [
+      r.date, r.time||"", r.type==="income"?"รายรับ":"รายจ่าย", r.amount, r.merchant, r.category, (r.note||"").replace(/\n/g," ")
+    ]);
+    const csv = [header, ...rows].map(row=>
+      row.map(cell=> `"${String(cell).replace(/"/g,'""')}"`).join(",")
+    ).join("\n");
+    const blob = new Blob(["﻿"+csv], {type:"text/csv;charset=utf-8;"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `expense-tracker-${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  function fmt(n){
+    return (n||0).toLocaleString("th-TH", {minimumFractionDigits:2, maximumFractionDigits:2});
+  }
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c=> ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  }
+  function escapeAttr(s){
+    return escapeHtml(s);
+  }
+  function showToast(msg){
+    const t = document.getElementById("toast");
+    t.textContent = msg;
+    t.classList.add("show");
+    setTimeout(()=> t.classList.remove("show"), 2600);
+  }
+
+  renderList();
+})();
+</script>
+</body>
+</html>
