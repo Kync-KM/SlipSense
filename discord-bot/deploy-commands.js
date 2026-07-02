@@ -39,7 +39,35 @@ const commands = [
     ),
   new SlashCommandBuilder()
     .setName("delete_last")
-    .setDescription("ลบรายการล่าสุดที่บันทึกไว้ (แก้เผื่อบอทจำผิด)")
+    .setDescription("ลบรายการล่าสุดที่บันทึกไว้ (แก้เผื่อบอทจำผิด)"),
+  new SlashCommandBuilder()
+    .setName("add")
+    .setDescription("เพิ่มรายการด้วยมือ (ไม่ต้องมีรูปสลิป เช่น จ่ายเงินสด)")
+    .addNumberOption(opt =>
+      opt.setName("amount").setDescription("จำนวนเงิน (บาท)").setRequired(true)
+    )
+    .addStringOption(opt =>
+      opt.setName("type").setDescription("ประเภท (ค่าเริ่มต้น รายจ่าย)").setRequired(false)
+        .addChoices(
+          { name: "รายจ่าย", value: "expense" },
+          { name: "รายรับ", value: "income" }
+        )
+    )
+    .addStringOption(opt =>
+      opt.setName("merchant").setDescription("ร้าน/บุคคล").setRequired(false)
+    )
+    .addStringOption(opt =>
+      opt.setName("category").setDescription("หมวดหมู่ (ไม่ใส่ = เดาให้อัตโนมัติ)").setRequired(false)
+    )
+    .addStringOption(opt =>
+      opt.setName("note").setDescription("บันทึกช่วยจำ").setRequired(false)
+    )
+    .addStringOption(opt =>
+      opt.setName("date").setDescription("วันที่ YYYY-MM-DD (ไม่ใส่ = วันนี้)").setRequired(false)
+    ),
+  new SlashCommandBuilder()
+    .setName("backup_now")
+    .setDescription("สำรองข้อมูลทันที (ไม่ต้องรอถึงเที่ยงคืน)")
 ].map(c => c.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);

@@ -47,6 +47,7 @@ function addRecord(fields) {
     merchant: fields.merchant || "",
     category: fields.category || "อื่นๆ",
     note: fields.note || "",
+    possibleDuplicate: !!fields.possibleDuplicate,
     messageId: fields.messageId || null,
     channelId: fields.channelId || null,
     createdAt: new Date().toISOString()
@@ -54,6 +55,21 @@ function addRecord(fields) {
   records.push(rec);
   saveRecords(records);
   return rec;
+}
+
+// Looks for an existing record that looks like the same transaction: same
+// date, same amount, and same merchant (case/whitespace-insensitive). Used to
+// flag possible accidental double-submits of the same slip.
+function findPotentialDuplicate({ date, amount, merchant, excludeId } = {}) {
+  if (!date || !amount) return null;
+  const merchantKey = String(merchant || "").trim().toLowerCase();
+  const records = loadRecords();
+  return records.find(r =>
+    r.id !== excludeId &&
+    r.date === date &&
+    r.amount === amount &&
+    String(r.merchant || "").trim().toLowerCase() === merchantKey
+  ) || null;
 }
 
 function getRecord(id) {
@@ -118,5 +134,6 @@ function summaryAllMonths() {
 }
 
 module.exports = {
-  addRecord, getRecord, updateRecord, deleteRecord, listRecords, summary, summaryAllMonths, loadRecords, DATA_FILE
+  addRecord, getRecord, updateRecord, deleteRecord, listRecords, summary, summaryAllMonths,
+  findPotentialDuplicate, loadRecords, DATA_FILE
 };

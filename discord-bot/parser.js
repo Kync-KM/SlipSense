@@ -234,4 +234,4 @@ function analyzeText(rawText) {
   return result;
 }
 
-module.exports = { analyzeText, CATEGORY_OPTIONS, fixThaiText };
+module.exports = { analyzeText, CATEGORY_OPTIONS, fixThaiText, guessCategory };

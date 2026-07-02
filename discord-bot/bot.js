@@ -8,9 +8,11 @@ const {
 } = require("discord.js");
 const { createWorker } = require("tesseract.js");
 const { preprocessImage } = require("./preprocess");
-const { analyzeText, CATEGORY_OPTIONS } = require("./parser");
+const { analyzeText, CATEGORY_OPTIONS, guessCategory } = require("./parser");
 const storage = require("./storage");
 const { buildWorkbook } = require("./excelExport");
+const merchantMemory = require("./merchantMemory");
+const { setupBackup, runBackup } = require("./backup");
 
 const OWNER_ID = process.env.OWNER_ID || null;
 
@@ -62,8 +64,11 @@ function fmtMoney(n) {
 function buildRecordUI(rec) {
   const pending = !rec.amount;
   const embed = new EmbedBuilder()
-    .setColor(pending ? 0xf59e0b : (rec.type === "income" ? 0x16a34a : 0xdc2626))
-    .setTitle(pending ? "⚠️ บันทึกแล้ว (ต้องกรอกยอดเงินเอง)" : "✅ บันทึกแล้ว")
+    .setColor(rec.possibleDuplicate ? 0xea580c : pending ? 0xf59e0b : (rec.type === "income" ? 0x16a34a : 0xdc2626))
+    .setTitle(
+      rec.possibleDuplicate ? "⚠️ บันทึกแล้ว (ดูเหมือนจะซ้ำกับรายการที่มีอยู่)" :
+      pending ? "⚠️ บันทึกแล้ว (ต้องกรอกยอดเงินเอง)" : "✅ บันทึกแล้ว"
+    )
     .addFields(
       { name: "ประเภท", value: rec.type === "income" ? "🟢 รายรับ" : "🔴 รายจ่าย", inline: true },
       { name: "จำนวนเงิน", value: pending ? "❓ อ่านไม่ได้ กดปุ่มแก้ไข" : `${fmtMoney(rec.amount)} บาท`, inline: true },
@@ -71,6 +76,12 @@ function buildRecordUI(rec) {
       { name: "ร้าน/บุคคล", value: rec.merchant || "-", inline: true },
       { name: "หมวดหมู่", value: rec.category || "-", inline: true }
     );
+  if (rec.possibleDuplicate) {
+    embed.addFields({
+      name: "⚠️ คำเตือน",
+      value: "มีรายการ วันที่/ยอดเงิน/ร้านตรงกันอยู่แล้ว เช็คดูก่อนว่าไม่ได้ส่งสลิปใบเดิมซ้ำ (กด 🗑️ ลบได้ถ้าซ้ำจริง)"
+    });
+  }
   if (rec.note) embed.addFields({ name: "บันทึกช่วยจำ", value: rec.note.slice(0, 1000) });
   embed.setFooter({ text: `ID: ${rec.id}` });
 
@@ -126,14 +137,23 @@ async function processSlip(message, attachment) {
     const { data: { text } } = await worker.recognize(processed);
     const parsed = analyzeText(text);
 
+    // If we've seen this merchant before and the user corrected its category,
+    // trust that over the generic keyword guess.
+    const rememberedCategory = merchantMemory.getCategoryForMerchant(parsed.merchant);
+    const category = rememberedCategory || parsed.category;
+
+    const date = parsed.date || new Date().toISOString().slice(0, 10);
+    const dup = storage.findPotentialDuplicate({ date, amount: parsed.amount, merchant: parsed.merchant });
+
     const rec = storage.addRecord({
       type: parsed.type,
       amount: parsed.amount,
-      date: parsed.date || new Date().toISOString().slice(0, 10),
+      date,
       time: parsed.time || "",
       merchant: parsed.merchant,
-      category: parsed.category,
+      category,
       note: parsed.note,
+      possibleDuplicate: !!dup,
       messageId: message.id,
       channelId: message.channel.id
     });
@@ -213,14 +233,24 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const noteRaw = interaction.fields.getTextInputValue("note").trim();
 
       const amountParsed = parseFloat(amountRaw.replace(/,/g, ""));
+      const finalDate = /^\d{4}-\d{2}-\d{2}$/.test(dateRaw) ? dateRaw : existing.date;
+      const finalAmount = !isNaN(amountParsed) && amountParsed > 0 ? amountParsed : null;
       const patch = {
-        amount: !isNaN(amountParsed) && amountParsed > 0 ? amountParsed : null,
-        date: /^\d{4}-\d{2}-\d{2}$/.test(dateRaw) ? dateRaw : existing.date,
+        amount: finalAmount,
+        date: finalDate,
         merchant: merchantRaw,
         category: categoryRaw || "อื่นๆ",
-        note: noteRaw
+        note: noteRaw,
+        possibleDuplicate: !!storage.findPotentialDuplicate({
+          date: finalDate, amount: finalAmount, merchant: merchantRaw, excludeId: id
+        })
       };
       const updated = storage.updateRecord(id, patch);
+
+      // Learn this merchant -> category mapping for next time, so future
+      // slips from the same place get categorized correctly automatically.
+      if (merchantRaw && patch.category) merchantMemory.rememberMerchant(merchantRaw, patch.category);
+
       const { embed, components } = buildRecordUI(updated);
       await interaction.update({ embeds: [embed], components });
       return;
@@ -314,6 +344,45 @@ async function handleSlashCommand(interaction) {
     const last = records[0];
     storage.deleteRecord(last.id);
     await interaction.reply({ content: `ลบรายการล่าสุดแล้ว: ${last.merchant || last.category} (${last.amount ?? "?"} บาท)` });
+
+  } else if (cmd === "add") {
+    const amount = interaction.options.getNumber("amount");
+    const type = interaction.options.getString("type") || "expense";
+    const merchant = interaction.options.getString("merchant") || "";
+    const dateOpt = interaction.options.getString("date") || "";
+    const noteOpt = interaction.options.getString("note") || "";
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(dateOpt) ? dateOpt : new Date().toISOString().slice(0, 10);
+
+    if (!amount || amount <= 0) {
+      await interaction.reply({ content: "กรุณาใส่จำนวนเงินให้ถูกต้อง (มากกว่า 0)", ephemeral: true });
+      return;
+    }
+
+    const rememberedCategory = merchantMemory.getCategoryForMerchant(merchant);
+    const category = interaction.options.getString("category") || rememberedCategory ||
+      (merchant ? guessCategory(merchant) : "อื่นๆ") || "อื่นๆ";
+
+    const dup = storage.findPotentialDuplicate({ date, amount, merchant });
+    const rec = storage.addRecord({ type, amount, date, merchant, category, note: noteOpt, possibleDuplicate: !!dup });
+
+    if (merchant && category) merchantMemory.rememberMerchant(merchant, category);
+
+    const { embed, components } = buildRecordUI(rec);
+    await interaction.reply({ embeds: [embed], components });
+
+  } else if (cmd === "backup_now") {
+    if (!process.env.BACKUP_CHANNEL_ID) {
+      await interaction.reply({ content: "ยังไม่ได้ตั้งค่า BACKUP_CHANNEL_ID ใน .env ครับ", ephemeral: true });
+      return;
+    }
+    await interaction.deferReply({ ephemeral: true });
+    try {
+      await runBackup(interaction.client, process.env.BACKUP_CHANNEL_ID);
+      await interaction.editReply({ content: "สำรองข้อมูลเรียบร้อยแล้ว ✅" });
+    } catch (err) {
+      console.error("backup_now failed:", err);
+      await interaction.editReply({ content: `สำรองข้อมูลไม่สำเร็จ: ${err.message}` });
+    }
   }
 }
 
@@ -321,6 +390,7 @@ client.once(Events.ClientReady, (c) => {
   console.log(`✅ บอทออนไลน์แล้ว: ${c.user.tag}`);
   console.log(`   ข้อมูลบันทึกอยู่ที่: ${storage.DATA_FILE}`);
   if (OWNER_ID) console.log(`   ประมวลผลรูปจาก user ID: ${OWNER_ID} เท่านั้น`);
+  setupBackup(client);
 });
 
 process.on("unhandledRejection", (err) => console.error("Unhandled rejection:", err));
